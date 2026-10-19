@@ -8,6 +8,14 @@ const { createServer, MAX_BODY_BYTES } = require('../server.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 
+test('Render deployment blueprint keeps the app and backend on one service', () => {
+  const blueprint = fs.readFileSync(path.join(projectRoot, 'render.yaml'), 'utf8');
+  assert.match(blueprint, /runtime:\s*docker/);
+  assert.match(blueprint, /healthCheckPath:\s*\/api\/ready/);
+  assert.match(blueprint, /mountPath:\s*\/var\/data/);
+  assert.match(blueprint, /PROOFLOOP_DATA_DIR/);
+});
+
 async function withServer(callback, serverOptions = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proofloop-test-'));
   const server = createServer(Object.assign({ rootDir: projectRoot, dataDir }, serverOptions));

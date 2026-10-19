@@ -74,6 +74,26 @@ docker run --rm -p 4173:4173 proofloop
 
 The image runs `npm test` during the build, then serves the app on port 4173.
 
+## Render deployment
+
+The repository includes `render.yaml` for a one-service deployment. It runs
+the existing vanilla frontend and Node backend together, uses `/api/ready` for
+health checks, and mounts a persistent disk at `/var/data` for workspace data.
+
+1. Push this repository to GitHub as a public repository.
+2. In Render, choose **New → Blueprint** and select the repository.
+3. Confirm the `proofloop` service and persistent disk from `render.yaml`.
+4. Deploy and wait for the service health check to turn green.
+5. Verify the generated URL:
+
+```bash
+curl https://YOUR-RENDER-DOMAIN.onrender.com/api/health
+curl https://YOUR-RENDER-DOMAIN.onrender.com/api/ready
+```
+
+The frontend and APIs intentionally share one origin, so no frontend API URL
+or CORS setting is required.
+
 ## API
 
 The first backend slice is stateless and uses the curated dataset already in
