@@ -4,6 +4,7 @@
   "private": true,
   "description": "Evidence-backed decision workspace prototype",
   "scripts": {
+    "start": "node server.js",
     "test": "node --test"
   },
   "engines": {

@@ -14,14 +14,14 @@ The recommendation starts with the ASUS Zenbook 14 OLED. Open **New brief** and 
 
 ## Run locally
 
-This is a dependency-free static app. Node.js 20.19.5 is the pinned test
-runtime in `.nvmrc`; Python 3 is used only to serve the static files. From the
-repository root, run:
+This is a dependency-free Node app. Node.js 20.19.5 is the pinned runtime in
+`.nvmrc`. The Node server serves both the browser app and the same-origin API.
+From the repository root, run:
 
 ```bash
 npm ci
 npm test
-python3 -m http.server 4173
+npm start
 ```
 
 Then open [http://localhost:4173](http://localhost:4173).
@@ -48,7 +48,10 @@ built-in test runner. If GNU Make is available, the same check can be run with
 - `styles.css` — responsive visual system
 - `data.js` — curated demo data, sources, conflicts, assumptions, and brief presets
 - `app.js` — scoring, sensitivity analysis, rendering, evidence intake, source removal, and report export
+- `server.js` — dependency-free HTTP server, API routing, validation, and static serving
+- `lib/decision.js` — server-side scoring, sensitivity, catalog validation, and preview composition
 - `test/core.test.js` — offline regression coverage for scoring, personas, persistence, reset, reports, and data references
+- `test/api.test.js` — offline HTTP/API, validation, routing, and static-serving coverage
 - `Dockerfile` — reproducible container image that runs the tests and serves the app
 
 The workspace uses browser `localStorage` only. No credentials, network data, or private content is sent anywhere.
@@ -64,6 +67,28 @@ docker run --rm -p 4173:4173 proofloop
 
 The image runs `npm test` during the build, then serves the app on port 4173.
 
+## API
+
+The first backend slice is stateless and uses the curated dataset already in
+the demo:
+
+- `GET /api/health` — readiness and data version
+- `GET /api/v1/catalog` — criteria, products, sources, conflicts, assumptions, and briefs
+- `POST /api/v1/decision/preview` — deterministic recommendation preview
+
+Example preview request:
+
+```bash
+curl -X POST http://localhost:4173/api/v1/decision/preview \
+  -H 'Content-Type: application/json' \
+  -d '{"briefId":"traveler"}'
+```
+
+The preview API does not persist data, make network calls, authenticate users,
+or accept user evidence. Invalid JSON, unknown briefs/criteria, missing
+weights, unsupported methods, oversized bodies, and unsupported content types
+return stable JSON error envelopes.
+
 ## Scope and limitations
 
-The first build intentionally uses a curated local dataset so the demo is reliable and reproducible. User-added evidence is labeled as unverified and does not affect scoring. Live web retrieval, LLM extraction, and production persistence are the next backend steps; the UI is structured so those capabilities can be added without changing the core evidence model.
+The first backend slice intentionally uses a curated local dataset so the demo is reliable and reproducible. User-added evidence is still labeled as unverified and remains browser-local; it does not affect server scoring. Live web retrieval, LLM extraction, authentication, and durable workspace persistence remain future backend steps.
