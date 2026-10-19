@@ -159,6 +159,44 @@ function serveStatic(rootDir, requestPath, response) {
   });
 }
 
+async function handleDecisionEndpoint(request, response, endpoint) {
+  var contentType = String(request.headers['content-type'] || '').toLowerCase();
+  if (!contentType.startsWith('application/json')) {
+    sendError(response, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Use Content-Type application/json.');
+    return;
+  }
+  var body;
+  try {
+    body = await readJsonBody(request);
+  } catch (error) {
+    sendError(response, error.statusCode || 400, error.code || 'INVALID_JSON', error.message || 'Request body is invalid.');
+    return;
+  }
+  var errors = validatePreviewRequest(body);
+  if (errors.length) {
+    sendError(response, 422, 'VALIDATION_ERROR', 'Request body is invalid.', errors);
+    return;
+  }
+  var briefId = body.briefId || data.defaults.briefId;
+  if (!decision.briefById(data, briefId)) {
+    sendError(response, 422, 'UNKNOWN_BRIEF', 'Brief ID is not in the catalog.', [validationError('briefId', 'UNKNOWN_BRIEF', 'Choose a brief from the catalog.')]);
+    return;
+  }
+  var options = { briefId: briefId, weights: body.weights };
+  if (endpoint === 'preview') {
+    sendJson(response, 200, decision.preview(data, options));
+    return;
+  }
+  var report = decision.buildReport(data, options);
+  sendJson(response, 200, {
+    schemaVersion: report.result.schemaVersion,
+    dataVersion: report.result.dataVersion,
+    format: 'markdown',
+    filename: 'proofloop-decision-report.md',
+    markdown: report.markdown
+  });
+}
+
 async function handleRequest(request, response, options) {
   var rawPath = String(request.url || '').split('?')[0];
   try {
@@ -191,29 +229,12 @@ async function handleRequest(request, response, options) {
   }
   if (requestPath === '/api/v1/decision/preview') {
     if (request.method !== 'POST') return methodNotAllowed(response, 'POST');
-    var contentType = String(request.headers['content-type'] || '').toLowerCase();
-    if (!contentType.startsWith('application/json')) {
-      sendError(response, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Use Content-Type application/json.');
-      return;
-    }
-    var body;
-    try {
-      body = await readJsonBody(request);
-    } catch (error) {
-      sendError(response, error.statusCode || 400, error.code || 'INVALID_JSON', error.message || 'Request body is invalid.');
-      return;
-    }
-    var errors = validatePreviewRequest(body);
-    if (errors.length) {
-      sendError(response, 422, 'VALIDATION_ERROR', 'Request body is invalid.', errors);
-      return;
-    }
-    var briefId = body.briefId || data.defaults.briefId;
-    if (!decision.briefById(data, briefId)) {
-      sendError(response, 422, 'UNKNOWN_BRIEF', 'Brief ID is not in the catalog.', [validationError('briefId', 'UNKNOWN_BRIEF', 'Choose a brief from the catalog.')]);
-      return;
-    }
-    sendJson(response, 200, decision.preview(data, { briefId: briefId, weights: body.weights }));
+    await handleDecisionEndpoint(request, response, 'preview');
+    return;
+  }
+  if (requestPath === '/api/v1/decision/report') {
+    if (request.method !== 'POST') return methodNotAllowed(response, 'POST');
+    await handleDecisionEndpoint(request, response, 'report');
     return;
   }
   if (requestPath.startsWith('/api/')) {

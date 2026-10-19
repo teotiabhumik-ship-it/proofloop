@@ -96,6 +96,20 @@ test('decision preview accepts explicit battery-only weights', async () => {
   });
 });
 
+test('decision report returns a reproducible markdown artifact', async () => {
+  await withServer(async (baseUrl) => {
+    const first = await request(baseUrl, '/api/v1/decision/report', jsonOptions({ briefId: 'traveler' }));
+    const second = await request(baseUrl, '/api/v1/decision/report', jsonOptions({ briefId: 'traveler' }));
+
+    assert.equal(first.response.status, 200);
+    assert.equal(first.body.format, 'markdown');
+    assert.equal(first.body.filename, 'proofloop-decision-report.md');
+    assert.match(first.body.markdown, /# ProofLoop decision report/);
+    assert.match(first.body.markdown, /Lenovo ThinkPad X1 Carbon Gen 12/);
+    assert.equal(first.body.markdown, second.body.markdown);
+  });
+});
+
 test('all-zero preview is safe and does not fabricate a recommendation', async () => {
   await withServer(async (baseUrl) => {
     const weights = { price: 0, performance: 0, battery: 0, portability: 0, display: 0 };

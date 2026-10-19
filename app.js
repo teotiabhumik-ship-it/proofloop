@@ -732,9 +732,9 @@
     return lines.join('\n');
   }
 
-  function exportReport() {
+  function downloadReport(markdown) {
     if (!root.Blob || !root.URL || !root.URL.createObjectURL || !root.document) return;
-    var blob = new Blob([buildReport()], { type: 'text/markdown;charset=utf-8' });
+    var blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
     var link = root.document.createElement('a');
     link.href = root.URL.createObjectURL(blob);
     link.download = 'proofloop-decision-report.md';
@@ -742,6 +742,27 @@
     link.click();
     root.document.body.removeChild(link);
     root.setTimeout(function () { root.URL.revokeObjectURL(link.href); }, 0);
+  }
+
+  function exportReport() {
+    var localReport = buildReport();
+    if (!canUsePreviewApi() || data.sources.some(function (source) { return source.userProvided === true; })) {
+      downloadReport(localReport);
+      return;
+    }
+    root.fetch('/api/v1/decision/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(previewPayload())
+    }).then(function (response) {
+      if (!response || !response.ok) throw new Error('Report request failed.');
+      return response.json();
+    }).then(function (payload) {
+      if (!payload || payload.format !== 'markdown' || typeof payload.markdown !== 'string') throw new Error('Report response is invalid.');
+      downloadReport(payload.markdown);
+    }).catch(function () {
+      downloadReport(localReport);
+    });
   }
 
   function formatPrice(price, currency) {

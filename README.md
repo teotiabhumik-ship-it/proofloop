@@ -77,6 +77,7 @@ the demo:
 - `GET /api/health` — readiness and data version
 - `GET /api/v1/catalog` — criteria, products, sources, conflicts, assumptions, and briefs
 - `POST /api/v1/decision/preview` — deterministic recommendation preview
+- `POST /api/v1/decision/report` — deterministic Markdown decision report
 
 Example preview request:
 
@@ -90,6 +91,11 @@ The preview API does not persist data, make network calls, authenticate users,
 or accept user evidence. Invalid JSON, unknown briefs/criteria, missing
 weights, unsupported methods, oversized bodies, and unsupported content types
 return stable JSON error envelopes.
+
+The report endpoint accepts the same JSON body as the preview endpoint and
+returns a JSON envelope containing a Markdown string and filename. The browser
+uses it for exports when no local user-provided sources need to be included;
+otherwise it keeps the local export so pasted evidence is not lost.
 
 When the app is opened through `npm start`, the browser renders its local
 calculation immediately and then synchronizes the recommendation and
