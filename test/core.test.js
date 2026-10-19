@@ -120,7 +120,7 @@ test('browser applies an available API preview without losing local state', asyn
   api.setBrief('traveler');
   await api.refreshPreview();
 
-  const request = calls[calls.length - 1];
+  const request = calls.filter((item) => item.url === '/api/v1/decision/preview')[0];
   const payload = JSON.parse(request.options.body);
   assert.equal(request.url, '/api/v1/decision/preview');
   assert.equal(request.options.headers['Content-Type'], 'application/json');

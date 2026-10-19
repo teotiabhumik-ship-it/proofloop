@@ -50,6 +50,8 @@ built-in test runner. If GNU Make is available, the same check can be run with
 - `app.js` — scoring, sensitivity analysis, rendering, evidence intake, source removal, and report export
 - `server.js` — dependency-free HTTP server, API routing, validation, and static serving
 - `lib/decision.js` — server-side scoring, sensitivity, catalog validation, and preview composition
+- `lib/workspaces.js` — atomic file-backed workspace persistence
+- `lib/research.js` — constrained HTML/plain-text retrieval and sanitization
 - `test/core.test.js` — offline regression coverage for scoring, personas, persistence, reset, reports, and data references
 - `test/api.test.js` — offline HTTP/API, validation, routing, and static-serving coverage
 - `Dockerfile` — reproducible container image that runs the tests and serves the app
@@ -78,6 +80,12 @@ the demo:
 - `GET /api/v1/catalog` — criteria, products, sources, conflicts, assumptions, and briefs
 - `POST /api/v1/decision/preview` — deterministic recommendation preview
 - `POST /api/v1/decision/report` — deterministic Markdown decision report
+- `GET /api/v1/workspaces/:workspaceId` — read a persisted workspace
+- `PUT /api/v1/workspaces/:workspaceId` — create or replace workspace state
+- `POST /api/v1/workspaces/:workspaceId/sources` — persist user-provided evidence
+- `DELETE /api/v1/workspaces/:workspaceId/sources/:sourceId` — remove user-provided evidence
+- `POST /api/v1/research/fetch` — fetch and sanitize an HTML/plain-text source
+- `POST /api/v1/research/extract` — extract criterion claims through an optional OpenAI-compatible LLM
 
 Example preview request:
 
@@ -96,6 +104,21 @@ The report endpoint accepts the same JSON body as the preview endpoint and
 returns a JSON envelope containing a Markdown string and filename. The browser
 uses it for exports when no local user-provided sources need to be included;
 otherwise it keeps the local export so pasted evidence is not lost.
+
+Workspace state is stored in `.data/workspaces.json` by default. Writes use a
+temporary file and atomic rename, and `.data/` is ignored by Git. Set
+`PROOFLOOP_DATA_DIR` to use another writable data directory in a deployment.
+
+Research fetch accepts `{ "url": "https://example.com/article" }`, blocks
+embedded credentials and private/loopback targets, rejects non-text content,
+limits responses to 1 MiB, applies a 10-second timeout, and returns cleaned
+text plus title and publisher metadata. It does not call an LLM or change the
+catalog automatically.
+
+Claims extraction accepts `{ "text": "..." }`. Configure an OpenAI-compatible
+provider with `PROOFLOOP_LLM_ENDPOINT`, `PROOFLOOP_LLM_API_KEY`, and
+`PROOFLOOP_LLM_MODEL`. The key is read only on the server and is never sent to
+the browser. Without configuration, the endpoint returns `503 NOT_CONFIGURED`.
 
 When the app is opened through `npm start`, the browser renders its local
 calculation immediately and then synchronizes the recommendation and

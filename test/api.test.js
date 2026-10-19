@@ -1,13 +1,16 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { createServer, MAX_BODY_BYTES } = require('../server.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 
-async function withServer(callback) {
-  const server = createServer({ rootDir: projectRoot });
+async function withServer(callback, serverOptions = {}) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'proofloop-test-'));
+  const server = createServer(Object.assign({ rootDir: projectRoot, dataDir }, serverOptions));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
@@ -15,6 +18,7 @@ async function withServer(callback) {
     return await callback(baseUrl);
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }
 
@@ -61,6 +65,8 @@ test('health and catalog endpoints expose deterministic service data', async () 
       dataVersion: '1.0.0'
     });
     assert.match(health.response.headers.get('content-type'), /application\/json/);
+    assert.equal(health.response.headers.get('x-content-type-options'), 'nosniff');
+    assert.ok(health.response.headers.get('x-request-id'));
 
     const catalog = await request(baseUrl, '/api/v1/catalog');
     assert.equal(catalog.response.status, 200);
@@ -110,6 +116,59 @@ test('decision report returns a reproducible markdown artifact', async () => {
   });
 });
 
+test('research fetch endpoint extracts safe HTML through an injected offline adapter', async () => {
+  const fakeFetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: { get(name) { return name === 'content-type' ? 'text/html' : null; } },
+    text: async () => '<html><head><title>Test source</title></head><body><script>bad()</script><p>Battery lasted eleven hours.</p></body></html>'
+  });
+  const fakeLookup = async () => [{ address: '93.184.216.34', family: 4 }];
+  await withServer(async (baseUrl) => {
+    const result = await request(baseUrl, '/api/v1/research/fetch', jsonOptions({ url: 'https://example.com/review' }));
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.source.title, 'Test source');
+    assert.match(result.body.source.text, /Battery lasted eleven hours/);
+    assert.doesNotMatch(result.body.source.text, /bad/);
+  }, { fetchImpl: fakeFetch, lookupImpl: fakeLookup });
+});
+
+test('research fetch rejects private targets', async () => {
+  await withServer(async (baseUrl) => {
+    const result = await request(baseUrl, '/api/v1/research/fetch', jsonOptions({ url: 'http://localhost:8080/admin' }));
+    assert.equal(result.response.status, 422);
+    assert.equal(result.body.error.code, 'VALIDATION_ERROR');
+  });
+});
+
+test('claims extraction uses the configured provider without exposing its key', async () => {
+  const requests = [];
+  const fakeFetch = async (url, options) => {
+    requests.push({ url, options });
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ message: { content: JSON.stringify({ claims: [{ criterionId: 'battery', value: 11, unit: 'hours', stance: 'independent-measurement', confidence: 0.9, quote: 'The test lasted 11 hours.' }] }) } }] })
+    };
+  };
+  await withServer(async (baseUrl) => {
+    const result = await request(baseUrl, '/api/v1/research/extract', jsonOptions({ text: 'The test lasted 11 hours.' }));
+    assert.equal(result.response.status, 200);
+    assert.equal(result.body.extraction.claims[0].criterionId, 'battery');
+    assert.equal(result.body.extraction.claims[0].confidence, 0.9);
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer test-secret');
+    assert.doesNotMatch(JSON.stringify(result.body), /test-secret/);
+  }, { env: { PROOFLOOP_LLM_ENDPOINT: 'https://llm.example.test/v1/chat/completions', PROOFLOOP_LLM_API_KEY: 'test-secret', PROOFLOOP_LLM_MODEL: 'test-model' }, fetchImpl: fakeFetch });
+});
+
+test('claims extraction reports when no provider is configured', async () => {
+  await withServer(async (baseUrl) => {
+    const result = await request(baseUrl, '/api/v1/research/extract', jsonOptions({ text: 'Battery lasted 11 hours.' }));
+    assert.equal(result.response.status, 503);
+    assert.equal(result.body.error.code, 'NOT_CONFIGURED');
+  }, { env: {} });
+});
+
 test('all-zero preview is safe and does not fabricate a recommendation', async () => {
   await withServer(async (baseUrl) => {
     const weights = { price: 0, performance: 0, battery: 0, portability: 0, display: 0 };
@@ -119,6 +178,49 @@ test('all-zero preview is safe and does not fabricate a recommendation', async (
     assert.equal(result.body.recommendation, null);
     assert.equal(result.body.sensitivity.active, false);
     assert.deepEqual(result.body.ranking.map((entry) => entry.score), [0, 0, 0]);
+  });
+});
+
+test('workspace and evidence APIs persist and read back state', async () => {
+  await withServer(async (baseUrl) => {
+    const workspaceId = 'demo-workspace';
+    const saved = await request(baseUrl, `/api/v1/workspaces/${workspaceId}`, jsonOptions({
+      briefId: 'traveler',
+      weights: { price: 0.1, performance: 0.2, battery: 0.4, portability: 0.25, display: 0.05 },
+      activeTab: 'conflicts',
+      selectedProductId: 'thinkpad-x1-carbon-gen12',
+      selectedSourceId: 'notebookcheck-x1-carbon'
+    }, 'PUT'));
+    assert.equal(saved.response.status, 200);
+    assert.equal(saved.body.workspace.briefId, 'traveler');
+    assert.equal(saved.body.workspace.activeTab, 'conflicts');
+
+    const read = await request(baseUrl, `/api/v1/workspaces/${workspaceId}`);
+    assert.equal(read.response.status, 200);
+    assert.equal(read.body.workspace.weights.battery, 0.4);
+
+    const invalidSource = await request(baseUrl, `/api/v1/workspaces/${workspaceId}/sources`, jsonOptions({
+      productId: 'thinkpad-x1-carbon-gen12', title: 'Bad URL', publisher: 'Notes', quote: 'x', url: 'file:///secret'
+    }));
+    assert.equal(invalidSource.response.status, 422);
+
+    const source = await request(baseUrl, `/api/v1/workspaces/${workspaceId}/sources`, jsonOptions({
+      id: 'user-source-test-1',
+      productId: 'thinkpad-x1-carbon-gen12',
+      title: 'My travel test',
+      publisher: 'Local notes',
+      quote: 'The keyboard remained comfortable on a long flight.',
+      url: 'https://example.com/test'
+    }));
+    assert.equal(source.response.status, 201);
+    assert.equal(source.body.source.id, 'user-source-test-1');
+
+    const withSource = await request(baseUrl, `/api/v1/workspaces/${workspaceId}`);
+    assert.equal(withSource.body.workspace.userSources.length, 1);
+
+    const removed = await request(baseUrl, `/api/v1/workspaces/${workspaceId}/sources/user-source-test-1`, { method: 'DELETE' });
+    assert.equal(removed.response.status, 200);
+    assert.equal(removed.body.workspace.userSources.length, 0);
   });
 });
 

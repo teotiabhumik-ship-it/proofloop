@@ -34,6 +34,7 @@
   };
   var userSourceSequence = 0;
   var STORAGE_KEY = 'proofloop.workspace.v1';
+  var WORKSPACE_ID_KEY = 'proofloop.workspace.id.v1';
   var storageRestored = false;
   var previewRequestSequence = 0;
   var previewTimer = null;
@@ -58,6 +59,153 @@
 
   function setApiStatus(label) {
     all('#api-status').forEach(function (target) { target.textContent = label; });
+  }
+
+  function workspaceId() {
+    var store = storage();
+    if (store) {
+      try {
+        var saved = store.getItem(WORKSPACE_ID_KEY);
+        if (saved) return saved;
+        var generated = 'workspace-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+        store.setItem(WORKSPACE_ID_KEY, generated);
+        return generated;
+      } catch (error) { /* local-only mode */ }
+    }
+    return 'workspace-local';
+  }
+
+  function canUseWorkspaceApi() {
+    return canUsePreviewApi();
+  }
+
+  function validCatalogResponse(response) {
+    return response && response.schemaVersion === 1 && Array.isArray(response.criteria) && Array.isArray(response.products) && Array.isArray(response.sources) && Array.isArray(response.briefs) && response.defaults;
+  }
+
+  function applyCatalog(response) {
+    var userSources = data.sources.filter(function (source) { return source.userProvided === true; });
+    data.version = response.dataVersion || data.version;
+    data.title = response.title || data.title;
+    data.currency = response.currency || data.currency;
+    data.criteria = response.criteria;
+    data.products = response.products;
+    data.sources = response.sources.concat(userSources);
+    data.conflicts = response.conflicts || [];
+    data.assumptions = response.assumptions || [];
+    data.briefs = response.briefs;
+    data.defaults = response.defaults;
+    userSources.forEach(function (source) {
+      var product = productById(source.productId);
+      if (!product) return;
+      product.sourceIds = product.sourceIds || [];
+      if (product.sourceIds.indexOf(source.id) < 0) product.sourceIds.push(source.id);
+    });
+  }
+
+  function loadCatalog() {
+    if (!canUsePreviewApi()) return Promise.resolve(false);
+    return root.fetch('/api/v1/catalog').then(function (response) {
+      if (!response.ok) throw new Error('Catalog request failed.');
+      return response.json();
+    }).then(function (payload) {
+      if (!validCatalogResponse(payload)) throw new Error('Catalog response is invalid.');
+      applyCatalog(payload);
+      setApiStatus('Catalog synced');
+      return true;
+    }).catch(function () {
+      return false;
+    });
+  }
+
+  function serverWorkspacePayload() {
+    return {
+      briefId: state.briefId,
+      weights: copy(state.weights),
+      activeTab: state.activeTab,
+      selectedProductId: state.selectedProductId,
+      selectedSourceId: state.selectedSourceId,
+      userSources: data.sources.filter(function (source) { return source.userProvided === true; })
+    };
+  }
+
+  function syncWorkspace() {
+    if (!canUseWorkspaceApi()) return Promise.resolve(false);
+    return root.fetch('/api/v1/workspaces/' + encodeURIComponent(workspaceId()), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(serverWorkspacePayload())
+    }).then(function (response) {
+      if (!response.ok) throw new Error('Workspace sync failed.');
+      return response.json();
+    }).then(function (payload) {
+      if (!payload || !payload.workspace) throw new Error('Workspace response is invalid.');
+      setStorageStatus('Saved locally + server');
+      return true;
+    }).catch(function () {
+      return false;
+    });
+  }
+
+  function applyRemoteWorkspace(workspace) {
+    if (!workspace || !briefById(workspace.briefId)) return false;
+    var brief = briefById(workspace.briefId);
+    state.briefId = brief.id;
+    state.question = brief.question;
+    state.budget = brief.budget;
+    data.criteria.forEach(function (criterion) {
+      var value = Number(workspace.weights && workspace.weights[criterion.id]);
+      if (Number.isFinite(value) && value >= 0) state.weights[criterion.id] = value;
+    });
+    if (['evidence', 'assumptions', 'conflicts'].indexOf(workspace.activeTab) >= 0) state.activeTab = workspace.activeTab;
+    if (data.products.some(function (product) { return product.id === workspace.selectedProductId; })) state.selectedProductId = workspace.selectedProductId;
+    clearUserSources();
+    (workspace.userSources || []).forEach(function (source) {
+      if (!source || !source.id || !source.productId || !source.userProvided) return;
+      if (!data.products.some(function (product) { return product.id === source.productId; })) return;
+      data.sources.push(source);
+      var product = productById(source.productId);
+      product.sourceIds = product.sourceIds || [];
+      if (product.sourceIds.indexOf(source.id) < 0) product.sourceIds.push(source.id);
+    });
+    if (data.sources.some(function (source) { return source.id === workspace.selectedSourceId; })) state.selectedSourceId = workspace.selectedSourceId;
+    return true;
+  }
+
+  function loadRemoteWorkspace() {
+    if (!canUseWorkspaceApi() || storageRestored) return Promise.resolve(false);
+    return root.fetch('/api/v1/workspaces/' + encodeURIComponent(workspaceId())).then(function (response) {
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error('Workspace read failed.');
+      return response.json();
+    }).then(function (payload) {
+      if (!payload || !payload.workspace) return false;
+      if (!applyRemoteWorkspace(payload.workspace)) return false;
+      persist();
+      return true;
+    }).catch(function () { return false; });
+  }
+
+  function syncSource(source) {
+    if (!canUseWorkspaceApi()) return Promise.resolve(false);
+    return root.fetch('/api/v1/workspaces/' + encodeURIComponent(workspaceId()) + '/sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(source)
+    }).then(function (response) {
+      if (!response.ok) throw new Error('Source sync failed.');
+      return response.json();
+    }).then(function () { setStorageStatus('Evidence saved locally + server'); return true; }).catch(function () { return false; });
+  }
+
+  function removeSyncedSource(sourceId) {
+    if (!canUseWorkspaceApi()) return Promise.resolve(false);
+    return root.fetch('/api/v1/workspaces/' + encodeURIComponent(workspaceId()) + '/sources/' + encodeURIComponent(sourceId), {
+      method: 'DELETE'
+    }).then(function (response) {
+      if (!response.ok) throw new Error('Source removal sync failed.');
+      return true;
+    }).catch(function () { return false; });
   }
 
   function persistedPayload() {
@@ -588,6 +736,7 @@
     renderSensitivity();
     persist();
     schedulePreview(180);
+    syncWorkspace();
   }
 
   function reset() {
@@ -608,6 +757,7 @@
     render();
     setStorageStatus('Demo reset');
     schedulePreview(0);
+    syncWorkspace();
   }
 
   function setBrief(briefId) {
@@ -620,6 +770,7 @@
     render();
     persist();
     schedulePreview(0);
+    syncWorkspace();
   }
 
   function setBriefModal(open) {
@@ -673,6 +824,7 @@
     renderEvidence();
     renderSourceCounts();
     persist();
+    syncSource(source);
     form.reset();
     setEvidenceModal(false);
   }
@@ -692,6 +844,7 @@
     renderEvidence();
     renderSourceCounts();
     persist();
+    removeSyncedSource(sourceId);
   }
 
   function buildReport() {
@@ -788,6 +941,7 @@
       state.selectedSourceId = selectedProduct.sourceIds && selectedProduct.sourceIds[0];
       renderEvidence();
       persist();
+      syncWorkspace();
       return;
     }
     if (element.hasAttribute('data-product-id')) return;
@@ -795,12 +949,14 @@
       state.selectedSourceId = element.getAttribute('data-source-id');
       renderEvidence();
       persist();
+      syncWorkspace();
       return;
     }
     if (element.hasAttribute('data-tab') || element.classList.contains('proofloop-tab') || element.classList.contains('tab')) {
       state.activeTab = (element.getAttribute('data-tab') || element.getAttribute('aria-controls') || '').replace(/-panel$/, '').replace(/^tab-/, '') || 'evidence';
       renderTabs();
       persist();
+      syncWorkspace();
       return;
     }
     if (element.hasAttribute('data-action') || element.id === 'reset' || element.classList.contains('reset-button')) reset();
@@ -860,7 +1016,13 @@
     root.document.addEventListener('submit', handleSubmit);
     restorePersisted();
     render();
-    schedulePreview(0);
+    loadCatalog().then(function () {
+      return loadRemoteWorkspace().then(function () {
+        render();
+        syncWorkspace();
+        schedulePreview(0);
+      });
+    });
     return api;
   }
 
