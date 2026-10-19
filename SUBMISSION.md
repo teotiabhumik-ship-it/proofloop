@@ -20,8 +20,9 @@ Start with the ASUS Zenbook 14 OLED recommendation. Then:
 4. Point to **How stable is this pick?** and show the crossover threshold.
 5. Click a shortlist row to inspect supporting evidence.
 6. Open **Conflicts** to show vendor claims versus independent testing.
-7. Add a local source quote and show it marked as user-provided.
-8. Click **Export** to download the decision report.
+7. Open **Add evidence**, enter a public URL, and use **Fetch source text** to prefill a cleaned excerpt.
+8. Save the reviewed excerpt and show it marked as user-provided.
+9. Click **Export** to download the decision report.
 
 ## What is implemented
 

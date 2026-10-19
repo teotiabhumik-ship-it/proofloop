@@ -795,6 +795,43 @@
     }
   }
 
+  function setFetchStatus(label) {
+    all('#fetch-evidence-status').forEach(function (target) { target.textContent = label; });
+  }
+
+  function fetchEvidenceSource() {
+    var form = first(['#evidence-form']);
+    if (!form || !canUsePreviewApi()) {
+      setFetchStatus('Start the server to fetch a source; local paste still works.');
+      return;
+    }
+    var urlInput = form.elements['evidence-url'];
+    var url = String(urlInput && urlInput.value || '').trim();
+    if (!url || (urlInput.checkValidity && !urlInput.checkValidity())) {
+      setFetchStatus('Enter a valid public http(s) URL first.');
+      if (urlInput && urlInput.focus) urlInput.focus();
+      return;
+    }
+    setFetchStatus('Fetching and cleaning source text…');
+    root.fetch('/api/v1/research/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url })
+    }).then(function (response) {
+      if (!response.ok) throw new Error('Source could not be fetched.');
+      return response.json();
+    }).then(function (payload) {
+      if (!payload || !payload.source) throw new Error('Source response is invalid.');
+      var source = payload.source;
+      if (form.elements['evidence-title']) form.elements['evidence-title'].value = source.title || '';
+      if (form.elements['evidence-publisher']) form.elements['evidence-publisher'].value = source.publisher || '';
+      if (form.elements['evidence-quote']) form.elements['evidence-quote'].value = String(source.text || '').slice(0, 2000);
+      setFetchStatus('Source text loaded. Review the excerpt before saving.');
+    }).catch(function () {
+      setFetchStatus('Fetch failed. You can still paste a quote manually.');
+    });
+  }
+
   function addUserSource(form) {
     var title = String((form.elements['evidence-title'] && form.elements['evidence-title'].value) || '').trim();
     var publisher = String((form.elements['evidence-publisher'] && form.elements['evidence-publisher'].value) || '').trim();
@@ -933,6 +970,7 @@
     if (element.getAttribute('data-action') === 'close-brief') { setBriefModal(false); return; }
     if (element.getAttribute('data-action') === 'open-evidence') { setEvidenceModal(true); return; }
     if (element.getAttribute('data-action') === 'close-evidence') { setEvidenceModal(false); return; }
+    if (element.getAttribute('data-action') === 'fetch-evidence') { fetchEvidenceSource(); return; }
     if (element.getAttribute('data-action') === 'remove-source') { removeUserSource(element.getAttribute('data-source-id')); return; }
     if (element.getAttribute('data-action') === 'export-report') { exportReport(); return; }
     if (element.hasAttribute('data-product-id') && element.classList.contains('proofloop-score-row')) {

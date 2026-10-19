@@ -211,6 +211,9 @@ input[type='range']:focus-visible { outline: 3px solid rgba(229, 108, 77, 0.28);
 .brief-modal label { display: block; margin-bottom: 8px; color: var(--ink); font-size: 12px; font-weight: 750; }
 .brief-modal select, .brief-modal input, .brief-modal textarea { width: 100%; padding: 12px 13px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 13px; }
 .brief-modal textarea { min-height: 120px; resize: vertical; line-height: 1.45; }
+.fetch-source-row { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+.fetch-source-row .button { flex: 0 0 auto; padding: 8px 11px; font-size: 10px; }
+.fetch-source-row span { color: var(--ink-faint); font-size: 10px; line-height: 1.35; }
 .brief-modal select:focus-visible, .brief-modal input:focus-visible, .brief-modal textarea:focus-visible { outline: 3px solid rgba(229, 108, 77, 0.24); outline-offset: 2px; }
 .evidence-modal label { margin-top: 15px; }
 .evidence-modal label:first-of-type { margin-top: 0; }
@@ -256,6 +259,7 @@ input[type='range']:focus-visible { outline: 3px solid rgba(229, 108, 77, 0.28);
   .source-detail { min-height: 0; }
   .footer { display: grid; }
   .brief-modal { padding: 23px 18px; }
+  .fetch-source-row { align-items: flex-start; flex-direction: column; }
   .question-card-footer { gap: 10px; flex-wrap: wrap; }
   .question-card-footer span + span::before { margin-right: 10px; }
 }

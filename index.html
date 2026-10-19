@@ -169,6 +169,7 @@
           <input id="evidence-publisher" name="evidence-publisher" type="text" required maxlength="120" autocomplete="organization" placeholder="e.g. My testing notes" />
           <label for="evidence-url">URL <span class="optional-label">(optional)</span></label>
           <input id="evidence-url" name="evidence-url" type="url" maxlength="500" placeholder="https://example.com/source" />
+          <div class="fetch-source-row"><button class="button button-ghost" type="button" data-action="fetch-evidence">Fetch source text</button><span id="fetch-evidence-status" role="status" aria-live="polite">Fetch a public HTML or text source to prefill the quote.</span></div>
           <label for="evidence-quote">Pasted evidence quote</label>
           <textarea id="evidence-quote" name="evidence-quote" required maxlength="2000" rows="5" placeholder="Paste the supporting quote or excerpt here..."></textarea>
           <div class="modal-actions"><button class="button button-ghost" type="button" data-action="close-evidence">Cancel</button><button class="button button-primary" type="submit">Add evidence</button></div>
