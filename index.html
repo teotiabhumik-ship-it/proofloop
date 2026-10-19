@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="ProofLoop makes AI recommendations inspectable with evidence, assumptions, and conflicts." />
+    <title>ProofLoop · Evidence-backed decisions</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="ProofLoop home">
+          <span class="brand-mark" aria-hidden="true">P</span>
+          <span>ProofLoop</span>
+        </a>
+        <div class="topbar-context">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Research workspace</span>
+          <span class="topbar-divider" aria-hidden="true"></span>
+          <span class="muted" id="storage-status">Local demo</span>
+        </div>
+        <div class="topbar-actions">
+          <button class="button button-primary" type="button" data-action="open-brief">New brief</button>
+          <button class="button button-ghost" type="button" data-action="export-report">Export</button>
+          <button class="reset-button button button-ghost" id="reset" type="button" data-action="reset">Reset</button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <section class="intro-row">
+          <div>
+            <p class="kicker">Decision intelligence / 01</p>
+            <h1>Make the answer<br /><em>show its work.</em></h1>
+            <p class="intro-copy">ProofLoop turns a research question into a recommendation you can inspect, challenge, and recalculate.</p>
+          </div>
+          <div class="question-card">
+            <div class="question-card-label"><span class="pulse-ring"></span>Active research question</div>
+            <p id="question-copy">Which laptop under <strong>$1,500</strong> is the best fit for a software developer?</p>
+            <div class="question-card-footer"><span>3 products</span><span data-source-count>9 sources</span><span>5 criteria</span><button class="brief-edit" type="button" data-action="open-brief">Edit brief</button></div>
+          </div>
+        </section>
+
+        <section class="workspace-grid" aria-label="ProofLoop research workspace">
+          <div class="left-column">
+            <article class="recommendation-card surface" id="recommendation" aria-live="polite"></article>
+            <div class="why-row">
+              <span class="why-label">Why this one</span>
+              <p id="recommendation-reason">Calculating the recommendation...</p>
+            </div>
+
+            <article class="surface score-surface">
+              <div class="section-heading">
+                <div>
+                  <p class="kicker">The shortlist</p>
+                  <h2>Every score is adjustable.</h2>
+                </div>
+                <span class="heading-note">Weighted 0–100</span>
+              </div>
+              <div class="score-list" id="score-list"></div>
+              <p class="helper-line"><span class="info-mark">i</span> Click a row to inspect its supporting evidence.</p>
+            </article>
+
+            <article class="surface weights-surface">
+              <div class="section-heading compact">
+                <div>
+                  <p class="kicker">Your priorities</p>
+                  <h2>Change the question.</h2>
+                </div>
+                <span class="heading-note">Drag to recalculate</span>
+              </div>
+              <div class="criteria-list" id="criteria-list"></div>
+            </article>
+          </div>
+
+          <aside class="right-column">
+            <article class="surface inspector-surface">
+              <div class="inspector-header">
+                <div>
+                  <p class="kicker">Audit trail</p>
+                  <h2>What supports the answer?</h2>
+                </div>
+                <div class="inspector-header-actions"><span class="inspector-count">09 sources</span><button class="button button-ghost add-evidence-button" type="button" data-action="open-evidence">Add evidence</button></div>
+              </div>
+              <nav class="tab-list" aria-label="Audit trail views" role="tablist">
+                <button class="tab proofloop-tab is-active" type="button" data-tab="evidence" role="tab" aria-selected="true" aria-controls="evidence-panel">Evidence</button>
+                <button class="tab proofloop-tab" type="button" data-tab="assumptions" role="tab" aria-selected="false" aria-controls="assumptions-panel">Assumptions <span class="tab-count">4</span></button>
+                <button class="tab proofloop-tab" type="button" data-tab="conflicts" role="tab" aria-selected="false" aria-controls="conflicts-panel">Conflicts <span class="tab-count warning">2</span></button>
+              </nav>
+
+              <div class="tab-panel evidence-panel" id="evidence-panel" data-tab-panel="evidence" role="tabpanel">
+                <div class="source-lens">
+                  <span class="lens-icon" aria-hidden="true">◉</span>
+                  <span id="source-lens-text">Showing the evidence lens for <strong>Framework Laptop 13</strong></span>
+                </div>
+                <div class="evidence-layout">
+                  <div class="evidence-list" id="evidence-list"></div>
+                  <div class="source-detail" id="source-detail" aria-live="polite"></div>
+                </div>
+              </div>
+
+              <div class="tab-panel assumptions-panel" id="assumptions-panel" data-tab-panel="assumptions" role="tabpanel" hidden>
+                <div class="panel-lede">The system makes its judgment calls explicit instead of burying them in a paragraph.</div>
+                <div class="assumptions-list" id="assumptions-list"></div>
+              </div>
+
+              <div class="tab-panel conflicts-panel" id="conflicts-panel" data-tab-panel="conflicts" role="tabpanel" hidden>
+                <div class="panel-lede">Disagreement is signal. These conflicts remain visible in the recommendation.</div>
+                <div class="conflicts-list" id="conflicts-list"></div>
+              </div>
+            </article>
+
+            <div class="trust-note">
+              <span class="trust-icon" aria-hidden="true">✓</span>
+              <div><strong>Transparent by default.</strong><span>Independent tests are weighted above vendor claims when they disagree.</span></div>
+            </div>
+          </aside>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <span>ProofLoop prototype</span>
+        <span>Recommendations are directional, not professional advice.</span>
+      </footer>
+    </div>
+    <div class="modal-backdrop" id="brief-modal" hidden>
+      <section class="brief-modal" role="dialog" aria-modal="true" aria-labelledby="brief-title">
+        <div class="modal-header">
+          <div><p class="kicker">Research brief</p><h2 id="brief-title">Change what matters.</h2></div>
+          <button class="modal-close" type="button" aria-label="Close brief editor" data-action="close-brief">×</button>
+        </div>
+        <form id="brief-form">
+          <label for="brief-persona">Who is this recommendation for?</label>
+          <select id="brief-persona" name="brief-persona">
+            <option value="developer">Software developer</option>
+            <option value="traveler">Traveling engineer</option>
+            <option value="creative-coder">Creative coder</option>
+          </select>
+          <p class="form-helper">The persona changes the weights, not the evidence. That keeps the decision reproducible.</p>
+          <div class="brief-preview"><span class="preview-label">Question preview</span><strong id="brief-preview-question">Which laptop under $1,500 is the best fit for a software developer?</strong></div>
+          <div class="modal-actions"><button class="button button-ghost" type="button" data-action="close-brief">Cancel</button><button class="button button-primary" type="submit">Run comparison</button></div>
+        </form>
+      </section>
+    </div>
+    <div class="modal-backdrop" id="evidence-modal" hidden>
+      <section class="brief-modal evidence-modal" role="dialog" aria-modal="true" aria-labelledby="evidence-title">
+        <div class="modal-header">
+          <div><p class="kicker">Local source intake</p><h2 id="evidence-title">Add evidence.</h2></div>
+          <button class="modal-close" type="button" aria-label="Close evidence form" data-action="close-evidence">×</button>
+        </div>
+        <p class="form-helper evidence-modal-context">Add a source for <strong id="evidence-product-name">the selected product</strong>. It will be labeled as user-provided evidence and will not change scoring.</p>
+        <form id="evidence-form">
+          <label for="evidence-title-input">Source title</label>
+          <input id="evidence-title-input" name="evidence-title" type="text" required maxlength="180" autocomplete="off" placeholder="e.g. Battery test notes" />
+          <label for="evidence-publisher">Publisher</label>
+          <input id="evidence-publisher" name="evidence-publisher" type="text" required maxlength="120" autocomplete="organization" placeholder="e.g. My testing notes" />
+          <label for="evidence-url">URL <span class="optional-label">(optional)</span></label>
+          <input id="evidence-url" name="evidence-url" type="url" maxlength="500" placeholder="https://example.com/source" />
+          <label for="evidence-quote">Pasted evidence quote</label>
+          <textarea id="evidence-quote" name="evidence-quote" required maxlength="2000" rows="5" placeholder="Paste the supporting quote or excerpt here..."></textarea>
+          <div class="modal-actions"><button class="button button-ghost" type="button" data-action="close-evidence">Cancel</button><button class="button button-primary" type="submit">Add evidence</button></div>
+        </form>
+      </section>
+    </div>
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
