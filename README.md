@@ -1,5 +1,8 @@
 # ProofLoop
 
+For the short demo script, architecture summary, API proof points, and honest
+submission boundaries, see [`SUBMISSION.md`](SUBMISSION.md).
+
 ProofLoop is an evidence-backed decision workspace for AI recommendations. It makes the recommendation inspectable by keeping the question, criteria, evidence, assumptions, and source conflicts visible in one place.
 
 ## Demo
@@ -56,9 +59,9 @@ built-in test runner. If GNU Make is available, the same check can be run with
 - `test/api.test.js` — offline HTTP/API, validation, routing, and static-serving coverage
 - `Dockerfile` — reproducible container image that runs the tests and serves the app
 
-The workspace persists controls and user-added evidence in browser `localStorage`.
-The browser sends only the selected brief ID and criterion weights to the
-same-origin preview API; no credentials or user-added evidence are sent.
+The workspace persists controls in browser `localStorage` and mirrors the
+workspace plus user-added evidence to the optional local server when available.
+No credentials are sent to the browser or stored in the workspace file.
 
 ## Container deployment
 
@@ -128,4 +131,9 @@ the app in local-only mode.
 
 ## Scope and limitations
 
-The first backend slice intentionally uses a curated local dataset so the demo is reliable and reproducible. User-added evidence is still labeled as unverified and remains browser-local; it does not affect server scoring. Live web retrieval, LLM extraction, authentication, and durable workspace persistence remain future backend steps.
+The submission intentionally uses a curated local dataset so the demo is
+reliable and reproducible. Retrieved and user-provided evidence is labeled and
+kept separate from scoring unless explicitly promoted into the catalog. The
+optional LLM extractor requires a configured OpenAI-compatible provider. User
+authentication, multi-user authorization, and production database migration
+are deployment follow-ups rather than hidden assumptions in this demo.
