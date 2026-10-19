@@ -68,6 +68,10 @@ test('health and catalog endpoints expose deterministic service data', async () 
     assert.equal(health.response.headers.get('x-content-type-options'), 'nosniff');
     assert.ok(health.response.headers.get('x-request-id'));
 
+    const ready = await request(baseUrl, '/api/ready');
+    assert.equal(ready.response.status, 200);
+    assert.equal(ready.body.persistence, 'ready');
+
     const catalog = await request(baseUrl, '/api/v1/catalog');
     assert.equal(catalog.response.status, 200);
     assert.equal(catalog.body.schemaVersion, 1);
@@ -75,6 +79,17 @@ test('health and catalog endpoints expose deterministic service data', async () 
     assert.equal(catalog.body.briefs.length, 3);
     assert.equal(catalog.body.sources.length, 9);
   });
+});
+
+test('write APIs enforce a bounded per-client rate limit', async () => {
+  await withServer(async (baseUrl) => {
+    const first = await request(baseUrl, '/api/v1/decision/preview', jsonOptions({}));
+    const second = await request(baseUrl, '/api/v1/decision/preview', jsonOptions({}));
+    assert.equal(first.response.status, 200);
+    assert.equal(second.response.status, 429);
+    assert.equal(second.body.error.code, 'RATE_LIMITED');
+    assert.ok(Number(second.response.headers.get('retry-after')) >= 1);
+  }, { rateLimitMax: 1, rateLimitWindowMs: 1000 });
 });
 
 test('decision preview returns default and traveler recommendations', async () => {

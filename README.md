@@ -80,6 +80,7 @@ The first backend slice is stateless and uses the curated dataset already in
 the demo:
 
 - `GET /api/health` — readiness and data version
+- `GET /api/ready` — readiness including writable persistence
 - `GET /api/v1/catalog` — criteria, products, sources, conflicts, assumptions, and briefs
 - `POST /api/v1/decision/preview` — deterministic recommendation preview
 - `POST /api/v1/decision/report` — deterministic Markdown decision report
@@ -111,6 +112,11 @@ otherwise it keeps the local export so pasted evidence is not lost.
 Workspace state is stored in `.data/workspaces.json` by default. Writes use a
 temporary file and atomic rename, and `.data/` is ignored by Git. Set
 `PROOFLOOP_DATA_DIR` to use another writable data directory in a deployment.
+
+The server also emits request IDs and security headers, caps request bodies and
+headers, supports graceful shutdown, and applies a per-client write rate limit.
+Configure the limiter with `PROOFLOOP_RATE_LIMIT_WINDOW_MS` and
+`PROOFLOOP_RATE_LIMIT_MAX`.
 
 Research fetch accepts `{ "url": "https://example.com/article" }`, blocks
 embedded credentials and private/loopback targets, rejects non-text content,

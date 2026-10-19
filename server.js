@@ -13,6 +13,8 @@ const extraction = require('./lib/extraction.js');
 const MAX_BODY_BYTES = 64 * 1024;
 const DEFAULT_PORT = 4173;
 const DEFAULT_HOST = '0.0.0.0';
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const DEFAULT_RATE_LIMIT_MAX = 60;
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
@@ -49,6 +51,25 @@ function sendError(response, statusCode, code, message, details, extraHeaders) {
   var error = { code: code, message: message };
   if (details && details.length) error.details = details;
   sendJson(response, statusCode, { error: error }, extraHeaders);
+}
+
+function createRateLimiter(windowMs, maxRequests) {
+  const buckets = new Map();
+  return function (key) {
+    const now = Date.now();
+    const current = buckets.get(key);
+    if (!current || now >= current.resetAt) {
+      buckets.set(key, { count: 1, resetAt: now + windowMs });
+      return { allowed: true, retryAfter: 0 };
+    }
+    current.count += 1;
+    if (current.count <= maxRequests) return { allowed: true, retryAfter: 0 };
+    return { allowed: false, retryAfter: Math.max(1, Math.ceil((current.resetAt - now) / 1000)) };
+  };
+}
+
+function clientAddress(request) {
+  return request.socket && request.socket.remoteAddress || 'unknown';
 }
 
 function methodNotAllowed(response, allowed) {
@@ -111,6 +132,12 @@ function validateSourceInput(body) {
 
 function readJsonBody(request) {
   return new Promise(function (resolve, reject) {
+    var declaredLength = Number(request.headers['content-length']);
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+      reject({ statusCode: 413, code: 'BODY_TOO_LARGE', message: 'Request body exceeds 64 KiB.' });
+      request.resume();
+      return;
+    }
     var chunks = [];
     var size = 0;
     request.on('data', function (chunk) {
@@ -408,9 +435,28 @@ async function handleRequest(request, response, options) {
   }
   var requestPath = requestUrl.pathname;
 
+  if (options.rateLimiter && requestPath.startsWith('/api/') && request.method !== 'GET' && request.method !== 'HEAD') {
+    var rate = options.rateLimiter(clientAddress(request));
+    if (!rate.allowed) {
+      sendError(response, 429, 'RATE_LIMITED', 'Too many write requests. Try again later.', null, { 'Retry-After': String(rate.retryAfter) });
+      return;
+    }
+  }
+
   if (requestPath === '/api/health') {
     if (request.method !== 'GET') return methodNotAllowed(response, 'GET');
     sendJson(response, 200, { ok: true, service: 'proofloop', apiVersion: '1', dataVersion: data.version });
+    return;
+  }
+  if (requestPath === '/api/ready') {
+    if (request.method !== 'GET') return methodNotAllowed(response, 'GET');
+    try {
+      fs.mkdirSync(options.workspaceStore.directory, { recursive: true });
+      fs.accessSync(options.workspaceStore.directory, fs.constants.W_OK);
+      sendJson(response, 200, { ok: true, service: 'proofloop', dataVersion: data.version, persistence: 'ready' });
+    } catch (error) {
+      sendError(response, 503, 'NOT_READY', 'Workspace persistence is not writable.');
+    }
     return;
   }
   if (requestPath === '/api/v1/catalog') {
@@ -454,13 +500,20 @@ function createServer(options) {
   var config = options || {};
   var rootDir = path.resolve(config.rootDir || __dirname);
   var workspaceStore = config.workspaceStore || workspaces.createStore({ directory: config.dataDir || process.env.PROOFLOOP_DATA_DIR || path.join(rootDir, '.data') });
-  return http.createServer(function (request, response) {
+  var rateWindowMs = Number(config.rateLimitWindowMs || process.env.PROOFLOOP_RATE_LIMIT_WINDOW_MS || DEFAULT_RATE_LIMIT_WINDOW_MS);
+  var rateMax = Number(config.rateLimitMax || process.env.PROOFLOOP_RATE_LIMIT_MAX || DEFAULT_RATE_LIMIT_MAX);
+  var rateLimiter = createRateLimiter(Number.isInteger(rateWindowMs) && rateWindowMs > 0 ? rateWindowMs : DEFAULT_RATE_LIMIT_WINDOW_MS, Number.isInteger(rateMax) && rateMax > 0 ? rateMax : DEFAULT_RATE_LIMIT_MAX);
+  var server = http.createServer({ maxHeaderSize: 16 * 1024 }, function (request, response) {
     response.setHeader('X-Request-Id', crypto.randomUUID());
-    handleRequest(request, response, { rootDir: rootDir, workspaceStore: workspaceStore, fetchImpl: config.fetchImpl, lookupImpl: config.lookupImpl, env: config.env || process.env }).catch(function () {
+    handleRequest(request, response, { rootDir: rootDir, workspaceStore: workspaceStore, rateLimiter: rateLimiter, fetchImpl: config.fetchImpl, lookupImpl: config.lookupImpl, env: config.env || process.env }).catch(function () {
       if (!response.headersSent) sendError(response, 500, 'INTERNAL_ERROR', 'The server could not complete the request.');
       else response.destroy();
     });
   });
+  server.requestTimeout = 15000;
+  server.headersTimeout = 16000;
+  server.keepAliveTimeout = 5000;
+  return server;
 }
 
 function parsePort(value) {
@@ -473,9 +526,17 @@ function parsePort(value) {
 if (require.main === module) {
   var port = parsePort(process.env.PORT);
   var host = process.env.HOST || DEFAULT_HOST;
-  createServer({ rootDir: __dirname }).listen(port, host, function () {
+  var server = createServer({ rootDir: __dirname });
+  server.listen(port, host, function () {
     process.stdout.write('ProofLoop server listening on http://' + host + ':' + port + '\n');
   });
+  function shutdown(signal) {
+    process.stdout.write('ProofLoop received ' + signal + '; shutting down.\n');
+    server.close(function () { process.exit(0); });
+    setTimeout(function () { process.exit(1); }, 10000).unref();
+  }
+  process.on('SIGTERM', function () { shutdown('SIGTERM'); });
+  process.on('SIGINT', function () { shutdown('SIGINT'); });
 }
 
 module.exports = {
