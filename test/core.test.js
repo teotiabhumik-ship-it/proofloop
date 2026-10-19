@@ -68,6 +68,41 @@ test('traveler brief prioritizes the lightest, longest-lasting laptop', () => {
   ]);
 });
 
+test('default sensitivity reports the battery and portability crossover points', () => {
+  const { api } = loadWorkspace(createStorage());
+  const analysis = api.calculateSensitivity();
+  const byId = Object.fromEntries(Array.from(analysis.criteria, (item) => [item.id, item]));
+
+  assert.equal(analysis.winnerId, 'asus-zenbook-14-oled');
+  assert.equal(analysis.winnerScore, 89.6);
+  assert.equal(analysis.scoreGap, 5.7);
+  assert.equal(byId.battery.changeAt, 59);
+  assert.equal(byId.battery.challengerId, 'thinkpad-x1-carbon-gen12');
+  assert.equal(byId.portability.changeAt, 51);
+  assert.equal(byId.performance.changeAt, null);
+});
+
+test('sensitivity uses the active persona and does not mutate weights', () => {
+  const { api } = loadWorkspace(createStorage());
+  api.setBrief('traveler');
+  const before = JSON.parse(JSON.stringify(api.getState().weights));
+  const analysis = api.calculateSensitivity();
+
+  assert.equal(analysis.winnerId, 'thinkpad-x1-carbon-gen12');
+  assert.equal(analysis.criteria.find((item) => item.id === 'battery').changeAt, 37);
+  assert.deepEqual(JSON.parse(JSON.stringify(api.getState().weights)), before);
+});
+
+test('all-zero weights return an inactive sensitivity result', () => {
+  const { api } = loadWorkspace(createStorage());
+  ['price', 'performance', 'battery', 'portability', 'display'].forEach((criterionId) => api.setWeight(criterionId, 0));
+
+  const analysis = api.calculateSensitivity();
+  assert.equal(analysis.active, false);
+  assert.equal(analysis.winnerId, null);
+  assert.ok(Array.from(analysis.criteria).every((item) => item.changeAt === null));
+});
+
 test('weight changes recalculate normalized scores', () => {
   const { api } = loadWorkspace(createStorage());
 

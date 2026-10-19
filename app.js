@@ -191,6 +191,87 @@
     });
   }
 
+  function calculateSensitivity(weights) {
+    var activeWeights = weights || state.weights;
+    var totalWeight = data.criteria.reduce(function (sum, criterion) {
+      return sum + Math.max(0, Number(activeWeights[criterion.id]) || 0);
+    }, 0);
+    if (!totalWeight) {
+      return {
+        active: false,
+        winnerId: null,
+        winnerName: null,
+        winnerScore: 0,
+        scoreGap: 0,
+        criteria: data.criteria.map(function (criterion) {
+          return {
+            id: criterion.id,
+            label: criterion.label,
+            currentPercent: 0,
+            changeAt: null,
+            challengerId: null,
+            challengerName: null
+          };
+        })
+      };
+    }
+
+    var ranked = calculateScores(activeWeights);
+    var winnerId = ranked[0].productId;
+    var winner = productById(winnerId);
+    var runnerUp = ranked[1];
+    var sensitivityCriteria = data.criteria.map(function (criterion) {
+      var currentWeight = Math.max(0, Number(activeWeights[criterion.id]) || 0);
+      var currentPercent = Math.round((currentWeight / totalWeight) * 100);
+      var otherTotal = totalWeight - currentWeight;
+      var threshold = null;
+
+      for (var percent = 0; percent <= 100; percent += 1) {
+        var candidateWeights = {};
+        data.criteria.forEach(function (candidateCriterion) {
+          if (candidateCriterion.id === criterion.id) {
+            candidateWeights[candidateCriterion.id] = percent / 100;
+          } else if (otherTotal) {
+            var otherWeight = Math.max(0, Number(activeWeights[candidateCriterion.id]) || 0);
+            candidateWeights[candidateCriterion.id] = (otherWeight / otherTotal) * (1 - (percent / 100));
+          } else {
+            candidateWeights[candidateCriterion.id] = 0;
+          }
+        });
+
+        var candidateWinner = calculateScores(candidateWeights)[0];
+        if (candidateWinner.productId !== winnerId) {
+          var distance = Math.abs(percent - currentPercent);
+          if (!threshold || distance < threshold.distance || (distance === threshold.distance && percent < threshold.changeAt)) {
+            threshold = {
+              changeAt: percent,
+              distance: distance,
+              challengerId: candidateWinner.productId
+            };
+          }
+        }
+      }
+
+      return {
+        id: criterion.id,
+        label: criterion.label,
+        currentPercent: currentPercent,
+        changeAt: threshold ? threshold.changeAt : null,
+        challengerId: threshold ? threshold.challengerId : null,
+        challengerName: threshold ? productById(threshold.challengerId).name : null
+      };
+    });
+
+    return {
+      active: true,
+      winnerId: winnerId,
+      winnerName: winner.name,
+      winnerScore: ranked[0].score,
+      scoreGap: runnerUp ? Math.round((ranked[0].score - runnerUp.score) * 10) / 10 : ranked[0].score,
+      criteria: sensitivityCriteria
+    };
+  }
+
   function recommendation() {
     var top = state.scores[0];
     return top ? productById(top.productId) : data.products[0];
@@ -261,6 +342,41 @@
           '<small>' + escapeHtml(criterion.description) + '</small>' +
           '</div>';
       }).join('');
+    });
+  }
+
+  function renderSensitivity() {
+    var targets = all('#sensitivity-view, [data-sensitivity-view], .sensitivity-view');
+    if (!targets.length) return;
+    var analysis = calculateSensitivity();
+
+    targets.forEach(function (target) {
+      if (!analysis.active) {
+        target.innerHTML = '<div class="sensitivity-empty" aria-live="polite">Give at least one criterion some weight to see how stable the recommendation is.</div>';
+        return;
+      }
+
+      var rows = analysis.criteria.map(function (item) {
+        var currentMarker = '<span class="sensitivity-bar__current" style="left:' + item.currentPercent + '%" aria-hidden="true"></span>';
+        var result;
+        if (item.changeAt === null) {
+          result = '<strong>Stable</strong><span>No winner change across the tested range.</span>';
+        } else {
+          result = '<strong>Changes at ' + item.changeAt + '%</strong><span>' + escapeHtml(item.challengerName) + ' takes the lead.</span>';
+        }
+        return '<div class="sensitivity-row">' +
+          '<div class="sensitivity-row__header"><strong>' + escapeHtml(item.label) + '</strong><span>Current ' + item.currentPercent + '%</span></div>' +
+          '<div class="sensitivity-bar" role="img" aria-label="' + escapeHtml(item.label + ' is currently weighted at ' + item.currentPercent + ' percent' + (item.changeAt === null ? '; no winner change across the tested range' : '; winner changes at ' + item.changeAt + ' percent')) + '">' +
+            '<span class="sensitivity-bar__track"></span>' + currentMarker + (item.changeAt === null ? '' : '<span class="sensitivity-bar__threshold" style="left:' + item.changeAt + '%" aria-hidden="true"></span>') +
+          '</div>' +
+          '<div class="sensitivity-row__result">' + result + '</div>' +
+        '</div>';
+      }).join('');
+
+      target.innerHTML = '<div class="sensitivity-summary" aria-live="polite"><span>Current pick</span><strong>' + escapeHtml(analysis.winnerName) + '</strong><span>leads by ' + escapeHtml(analysis.scoreGap.toFixed(1)) + ' points.</span></div>' +
+        '<div class="sensitivity-legend"><span><i class="sensitivity-legend__current"></i>Current effective weight</span><span><i class="sensitivity-legend__threshold"></i>Crossover point</span></div>' +
+        '<div class="sensitivity-list">' + rows + '</div>' +
+        '<p class="sensitivity-note">Each criterion is swept from 0–100% while the other priorities keep their relative proportions.</p>';
     });
   }
 
@@ -357,6 +473,7 @@
     state.scores = calculateScores();
     renderRecommendation();
     renderScores();
+    renderSensitivity();
     persist();
   }
 
@@ -583,6 +700,7 @@
     renderRecommendation();
     renderScores();
     renderCriteria();
+    renderSensitivity();
     renderEvidence();
     renderAssumptions();
     renderConflicts();
@@ -606,6 +724,7 @@
     init: init,
     reset: reset,
     calculateScores: calculateScores,
+    calculateSensitivity: calculateSensitivity,
     setBrief: setBrief,
     setWeight: updateWeight,
     getState: function () {

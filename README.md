@@ -35,18 +35,19 @@ built-in test runner. If GNU Make is available, the same check can be run with
 1. Start with the recommendation card.
 2. Open **New brief** and choose a different persona.
 3. Drag a criterion slider to show deterministic recalculation.
-4. Click a product score row to inspect that product's evidence.
-5. Open **Conflicts** to show the manufacturer-vs-independent battery disagreement.
-6. Use **Add evidence** to paste a local source quote.
-7. Use **Export** to download a Markdown decision report.
-8. Refresh the page to see the active brief, weights, selected evidence, and user-added sources restored locally. **Reset** clears that saved workspace and returns to the demo state.
+4. Read **How stable is this pick?** to see which priority changes could flip the recommendation.
+5. Click a product score row to inspect that product's evidence.
+6. Open **Conflicts** to show the manufacturer-vs-independent battery disagreement.
+7. Use **Add evidence** to paste a local source quote.
+8. Use **Export** to download a Markdown decision report.
+9. Refresh the page to see the active brief, weights, selected evidence, and user-added sources restored locally. **Reset** clears that saved workspace and returns to the demo state.
 
 ## Project structure
 
 - `index.html` — application shell and accessible modal forms
 - `styles.css` — responsive visual system
 - `data.js` — curated demo data, sources, conflicts, assumptions, and brief presets
-- `app.js` — scoring, rendering, evidence intake, source removal, and report export
+- `app.js` — scoring, sensitivity analysis, rendering, evidence intake, source removal, and report export
 - `test/core.test.js` — offline regression coverage for scoring, personas, persistence, reset, reports, and data references
 - `Dockerfile` — reproducible container image that runs the tests and serves the app
 
