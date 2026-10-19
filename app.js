@@ -29,11 +29,14 @@
     selectedProductId: data.defaults && data.defaults.selectedProductId || data.products[0].id,
     selectedSourceId: data.defaults && data.defaults.selectedSourceId || (data.sources[0] && data.sources[0].id),
     scores: [],
+    preview: null,
     initialized: false
   };
   var userSourceSequence = 0;
   var STORAGE_KEY = 'proofloop.workspace.v1';
   var storageRestored = false;
+  var previewRequestSequence = 0;
+  var previewTimer = null;
 
   function copy(object) {
     var result = {};
@@ -51,6 +54,10 @@
 
   function setStorageStatus(label) {
     all('#storage-status').forEach(function (target) { target.textContent = label; });
+  }
+
+  function setApiStatus(label) {
+    all('#api-status').forEach(function (target) { target.textContent = label; });
   }
 
   function persistedPayload() {
@@ -272,7 +279,101 @@
     };
   }
 
+  function previewPayload() {
+    return {
+      briefId: state.briefId,
+      weights: copy(state.weights)
+    };
+  }
+
+  function canUsePreviewApi() {
+    var protocol = root.location && root.location.protocol;
+    return typeof root.fetch === 'function' && (protocol === 'http:' || protocol === 'https:') && (!root.navigator || root.navigator.onLine !== false);
+  }
+
+  function validPreviewResponse(response) {
+    if (!response || response.schemaVersion !== 1 || !Array.isArray(response.ranking) || !response.sensitivity) return false;
+    var productIds = {};
+    data.products.forEach(function (product) { productIds[product.id] = true; });
+    var seen = {};
+    if (response.ranking.length !== data.products.length) return false;
+    for (var i = 0; i < response.ranking.length; i += 1) {
+      var entry = response.ranking[i];
+      if (!entry || !productIds[entry.productId] || seen[entry.productId] || !Number.isFinite(entry.score)) return false;
+      seen[entry.productId] = true;
+    }
+    if (response.recommendation !== null) {
+      if (!response.recommendation || !productIds[response.recommendation.productId] || !Number.isFinite(response.recommendation.score)) return false;
+    }
+    return Array.isArray(response.sensitivity.criteria) && typeof response.sensitivity.active === 'boolean';
+  }
+
+  function invalidatePreview() {
+    previewRequestSequence += 1;
+    state.preview = null;
+    if (previewTimer !== null) {
+      root.clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+  }
+
+  function renderCalculatedState() {
+    renderRecommendation();
+    renderScores();
+    renderSensitivity();
+  }
+
+  function refreshPreview() {
+    if (!canUsePreviewApi()) {
+      setApiStatus('Local-only mode');
+      return Promise.resolve(false);
+    }
+
+    if (previewTimer !== null) {
+      root.clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+    var requestId = ++previewRequestSequence;
+    setApiStatus('Checking API…');
+    return root.fetch('/api/v1/decision/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(previewPayload())
+    }).then(function (response) {
+      if (!response || !response.ok) throw new Error('Preview request failed.');
+      return response.json();
+    }).then(function (response) {
+      if (requestId !== previewRequestSequence) return false;
+      if (!validPreviewResponse(response)) throw new Error('Preview response is invalid.');
+      state.preview = response;
+      state.scores = response.ranking.slice();
+      setApiStatus('API preview');
+      renderCalculatedState();
+      return true;
+    }).catch(function () {
+      if (requestId !== previewRequestSequence) return false;
+      state.preview = null;
+      state.scores = calculateScores();
+      setApiStatus('Local fallback');
+      renderCalculatedState();
+      return false;
+    });
+  }
+
+  function schedulePreview(delay) {
+    if (previewTimer !== null) root.clearTimeout(previewTimer);
+    if (!canUsePreviewApi()) {
+      setApiStatus('Local-only mode');
+      return;
+    }
+    previewTimer = root.setTimeout(function () {
+      previewTimer = null;
+      refreshPreview();
+    }, delay == null ? 0 : delay);
+  }
+
   function recommendation() {
+    if (state.preview && state.preview.recommendation === null) return null;
     var top = state.scores[0];
     return top ? productById(top.productId) : data.products[0];
   }
@@ -284,6 +385,16 @@
 
   function renderRecommendation() {
     var product = recommendation();
+    if (!product) {
+      all('#recommendation, #recommendation-card, [data-recommendation], .recommendation').forEach(function (target) {
+        target.innerHTML = '<div class="proofloop-recommendation__eyebrow">Recommendation paused</div><h2>Add an active priority.</h2><p>Give at least one criterion some weight to calculate a meaningful recommendation.</p><p class="proofloop-meta">The ranking remains available below for inspection.</p>';
+        target.removeAttribute('data-product-id');
+      });
+      all('#recommendation-reason, [data-recommendation-reason], .recommendation-reason').forEach(function (target) {
+        target.textContent = 'No recommendation is shown while every priority has a zero weight.';
+      });
+      return;
+    }
     var score = scoreFor(product.id);
     all('#recommendation, #recommendation-card, [data-recommendation], .recommendation').forEach(function (target) {
       target.innerHTML = '<div class="proofloop-recommendation__eyebrow">Recommended for your current weights</div>' +
@@ -348,7 +459,7 @@
   function renderSensitivity() {
     var targets = all('#sensitivity-view, [data-sensitivity-view], .sensitivity-view');
     if (!targets.length) return;
-    var analysis = calculateSensitivity();
+    var analysis = state.preview && state.preview.sensitivity || calculateSensitivity();
 
     targets.forEach(function (target) {
       if (!analysis.active) {
@@ -464,6 +575,7 @@
 
   function updateWeight(criterionId, rawValue) {
     if (!Object.prototype.hasOwnProperty.call(defaultWeights, criterionId)) return;
+    invalidatePreview();
     var value = Math.max(0, Math.min(100, Number(rawValue) || 0));
     state.weights[criterionId] = value / 100;
     all('[data-weight-output="' + criterionId + '"]').forEach(function (output) { output.textContent = Math.round(value) + '%'; });
@@ -475,9 +587,11 @@
     renderScores();
     renderSensitivity();
     persist();
+    schedulePreview(180);
   }
 
   function reset() {
+    invalidatePreview();
     var store = storage();
     if (store) {
       try { store.removeItem(STORAGE_KEY); } catch (error) { /* best effort */ }
@@ -493,9 +607,11 @@
     storageRestored = false;
     render();
     setStorageStatus('Demo reset');
+    schedulePreview(0);
   }
 
   function setBrief(briefId) {
+    invalidatePreview();
     var brief = briefById(briefId);
     state.briefId = brief.id;
     state.question = brief.question;
@@ -503,6 +619,7 @@
     state.weights = copy(brief.weights || defaultWeights);
     render();
     persist();
+    schedulePreview(0);
   }
 
   function setBriefModal(open) {
@@ -579,27 +696,31 @@
 
   function buildReport() {
     var product = recommendation();
-    var score = scoreFor(product.id);
+    var score = product ? scoreFor(product.id) : 0;
     var lines = [
       '# ProofLoop decision report',
       '',
       '**Question:** ' + state.question,
-      '**Recommendation:** ' + product.name + ' (' + score.toFixed(1) + '/100)',
+      '**Recommendation:** ' + (product ? product.name + ' (' + score.toFixed(1) + '/100)' : 'No recommendation — add at least one active priority.'),
       '**Generated:** ' + new Date().toISOString(),
       '',
-      '## Why this recommendation',
-      product.summary,
-      '',
-      recommendationReason(product),
+      '## Why this recommendation'
+    ];
+    if (product) {
+      lines.push(product.summary, '', recommendationReason(product));
+    } else {
+      lines.push('The current weights do not identify a meaningful winner.');
+    }
+    lines.push(
       '',
       '## Score breakdown',
       ''
-    ];
+    );
     data.criteria.forEach(function (criterion) {
-      lines.push('- **' + criterion.label + ':** ' + (Number(product.scores[criterion.id]) || 0) + '/100 · weight ' + Math.round((state.weights[criterion.id] || 0) * 100) + '%');
+      lines.push('- **' + criterion.label + ':** ' + (product ? (Number(product.scores[criterion.id]) || 0) : 'not scored') + '/100 · weight ' + Math.round((state.weights[criterion.id] || 0) * 100) + '%');
     });
     lines.push('', '## Evidence used', '');
-    (product.sourceIds || []).map(sourceById).filter(Boolean).forEach(function (source) {
+    (product ? product.sourceIds || [] : []).map(sourceById).filter(Boolean).forEach(function (source) {
       lines.push('- **' + source.publisher + ' — ' + source.title + '** (' + sourceTypeLabel(source) + ')');
       lines.push('  > ' + source.quote);
     });
@@ -707,6 +828,7 @@
     renderTabs();
     renderSourceCounts();
     state.initialized = true;
+    setApiStatus(canUsePreviewApi() ? 'Local calculation' : 'Local-only mode');
   }
 
   function init() {
@@ -717,6 +839,7 @@
     root.document.addEventListener('submit', handleSubmit);
     restorePersisted();
     render();
+    schedulePreview(0);
     return api;
   }
 
@@ -725,6 +848,7 @@
     reset: reset,
     calculateScores: calculateScores,
     calculateSensitivity: calculateSensitivity,
+    refreshPreview: refreshPreview,
     setBrief: setBrief,
     setWeight: updateWeight,
     getState: function () {
@@ -738,6 +862,7 @@
         scores: state.scores.slice()
       };
     },
+    getPreview: function () { return state.preview; },
     data: data,
     buildReport: buildReport,
     persist: persist,

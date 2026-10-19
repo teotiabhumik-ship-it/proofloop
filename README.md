@@ -54,7 +54,9 @@ built-in test runner. If GNU Make is available, the same check can be run with
 - `test/api.test.js` — offline HTTP/API, validation, routing, and static-serving coverage
 - `Dockerfile` — reproducible container image that runs the tests and serves the app
 
-The workspace uses browser `localStorage` only. No credentials, network data, or private content is sent anywhere.
+The workspace persists controls and user-added evidence in browser `localStorage`.
+The browser sends only the selected brief ID and criterion weights to the
+same-origin preview API; no credentials or user-added evidence are sent.
 
 ## Container deployment
 
@@ -88,6 +90,12 @@ The preview API does not persist data, make network calls, authenticate users,
 or accept user evidence. Invalid JSON, unknown briefs/criteria, missing
 weights, unsupported methods, oversized bodies, and unsupported content types
 return stable JSON error envelopes.
+
+When the app is opened through `npm start`, the browser renders its local
+calculation immediately and then synchronizes the recommendation and
+sensitivity view with the API. If the API is unavailable, the UI stays usable
+and falls back to the local calculation. Opening `index.html` directly keeps
+the app in local-only mode.
 
 ## Scope and limitations
 

@@ -3,6 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const serverData = require('../data.js');
+const decision = require('../lib/decision.js');
 
 const projectRoot = path.resolve(__dirname, '..');
 const dataSource = fs.readFileSync(path.join(projectRoot, 'data.js'), 'utf8');
@@ -17,14 +19,14 @@ function createStorage() {
   };
 }
 
-function loadWorkspace(localStorage) {
+function loadWorkspace(localStorage, extras = {}) {
   const document = {
     readyState: 'complete',
     addEventListener() {},
     querySelector() { return null; },
     querySelectorAll() { return []; }
   };
-  const context = {
+  const context = Object.assign({
     console,
     Date,
     Intl,
@@ -32,7 +34,7 @@ function loadWorkspace(localStorage) {
     localStorage,
     setTimeout,
     clearTimeout
-  };
+  }, extras);
   context.globalThis = context;
   vm.runInNewContext(dataSource, context, { filename: 'data.js' });
   vm.runInNewContext(appSource, context, { filename: 'app.js' });
@@ -101,6 +103,60 @@ test('all-zero weights return an inactive sensitivity result', () => {
   assert.equal(analysis.active, false);
   assert.equal(analysis.winnerId, null);
   assert.ok(Array.from(analysis.criteria).every((item) => item.changeAt === null));
+});
+
+test('browser applies an available API preview without losing local state', async () => {
+  const calls = [];
+  const travelerPreview = decision.preview(serverData, { briefId: 'traveler' });
+  const { api } = loadWorkspace(createStorage(), {
+    location: { protocol: 'http:' },
+    navigator: { onLine: true },
+    fetch: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, json: async () => travelerPreview };
+    }
+  });
+
+  api.setBrief('traveler');
+  await api.refreshPreview();
+
+  const request = calls[calls.length - 1];
+  const payload = JSON.parse(request.options.body);
+  assert.equal(request.url, '/api/v1/decision/preview');
+  assert.equal(request.options.headers['Content-Type'], 'application/json');
+  assert.equal(payload.briefId, 'traveler');
+  assert.deepEqual(JSON.parse(JSON.stringify(payload.weights)), JSON.parse(JSON.stringify(api.getState().weights)));
+  assert.equal(api.getState().scores[0].productId, 'thinkpad-x1-carbon-gen12');
+  assert.equal(api.getPreview().sensitivity.winnerId, 'thinkpad-x1-carbon-gen12');
+});
+
+test('browser falls back locally when the API is unavailable', async () => {
+  const { api } = loadWorkspace(createStorage(), {
+    location: { protocol: 'http:' },
+    navigator: { onLine: true },
+    fetch: async () => { throw new Error('offline'); }
+  });
+
+  const result = await api.refreshPreview();
+  assert.equal(result, false);
+  assert.equal(api.getPreview(), null);
+  assert.equal(api.getState().scores[0].productId, 'asus-zenbook-14-oled');
+});
+
+test('browser handles an API response with no recommendation', async () => {
+  const zeroWeights = { price: 0, performance: 0, battery: 0, portability: 0, display: 0 };
+  const zeroPreview = decision.preview(serverData, { weights: zeroWeights });
+  const { api } = loadWorkspace(createStorage(), {
+    location: { protocol: 'http:' },
+    navigator: { onLine: true },
+    fetch: async () => ({ ok: true, json: async () => zeroPreview })
+  });
+
+  Object.keys(zeroWeights).forEach((criterionId) => api.setWeight(criterionId, 0));
+  await api.refreshPreview();
+
+  assert.equal(api.getPreview().recommendation, null);
+  assert.match(api.buildReport(), /No recommendation — add at least one active priority/);
 });
 
 test('weight changes recalculate normalized scores', () => {
