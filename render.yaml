@@ -13,7 +13,3 @@ services:
         value: "60000"
       - key: PROOFLOOP_RATE_LIMIT_MAX
         value: "60"
-    disk:
-      name: proofloop-data
-      mountPath: /var/data
-      sizeGB: 1

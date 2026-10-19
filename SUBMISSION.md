@@ -72,8 +72,9 @@ curl -X POST http://localhost:4173/api/v1/decision/report \
 - Persistent data: `.data/workspaces.json` or `PROOFLOOP_DATA_DIR`.
 - Container command: `docker build -t proofloop .` followed by
   `docker run --rm -p 4173:4173 -v proofloop-data:/app/.data proofloop`.
-- Hosted deployment: use the included `render.yaml` Blueprint; the generated
-  Render URL is the live demo URL for submission.
+- Hosted deployment: use the included free-tier `render.yaml` Blueprint; the
+  generated Render URL is the live demo URL for submission. Free-tier
+  workspace persistence is instance-scoped and may reset after redeploy.
 
 ## Honest boundaries
 

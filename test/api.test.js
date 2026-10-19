@@ -10,10 +10,11 @@ const projectRoot = path.resolve(__dirname, '..');
 
 test('Render deployment blueprint keeps the app and backend on one service', () => {
   const blueprint = fs.readFileSync(path.join(projectRoot, 'render.yaml'), 'utf8');
+  assert.match(blueprint, /plan:\s*free/);
   assert.match(blueprint, /runtime:\s*docker/);
   assert.match(blueprint, /healthCheckPath:\s*\/api\/ready/);
-  assert.match(blueprint, /mountPath:\s*\/var\/data/);
   assert.match(blueprint, /PROOFLOOP_DATA_DIR/);
+  assert.doesNotMatch(blueprint, /mountPath:/);
 });
 
 async function withServer(callback, serverOptions = {}) {
